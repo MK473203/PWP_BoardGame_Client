@@ -142,10 +142,44 @@ Button(
     command= lambda: getNewGame()
 ).place(x=560, y=120, anchor="center")
 
+#--------------------------------------------------------------
+#-- Spectate tab ----------------------------------------------
+#--------------------------------------------------------------
+spec_frame = Frame(tabControl)
+spec_frame.grid(sticky="sewn")
+
+#padx needs to probably be fixed after button command works
+Label(spec_frame, text="Spectate", font=("", 30)).grid(sticky="n", padx=480)
+
+spec_note = Label(spec_frame, text="", font=("", 15))
+spec_note.place(x=560, y=400, anchor="center")
+
+# Needs the command for spectateGame() when function completed
+Button(
+    spec_frame, background="grey", bd=6,
+    text="Spectate Game", font=("", 17)
+).place(x=560, y=120, anchor="center")
+
+Label(spec_frame, text="Game", font=("", 16) # Game to be replaced by api fetch with gametype, checkers or tictactoe
+      ).place(x=560, y=180, anchor="center")
+
+Label(spec_frame, text="Player1 - Player2", font=("", 16) # Player1 and player2 to be replaced by api fetch with usernames of the players
+      ).place(x=560, y=220, anchor="center")
+
+#Frame where the game to be spectated would be drawn, might need to be removed
+#to just use spec_frame instead
+game_frame = Frame(spec_frame, bg="#FFFFFF", bd=2, relief="solid", width=423, height=423)
+game_frame.place(x=0, y=0)
+
+#------------------------------------------------------------------
+#-- Spectate tab END ----------------------------------------------
+#------------------------------------------------------------------
+
 # Prepare and show tabs
 tabControl.add(prof_frame, text="Profile")
 tabControl.add(tic_frame, text="Tic-tac-toe")
 tabControl.add(chk_frame, text="Checkers")
+tabControl.add(spec_frame, text="Spectate")
 tabControl.pack(fill="both")
 
 #--------------------------------------------------------------
