@@ -4,27 +4,28 @@ import json
 from tkinter import *
 from tkinter.ttk import Notebook
 
-# Update static IP for remote access
+# Update this address for remote access
 API_ROUTE = "http://127.0.0.1:5000"
 
-# Height is selected so that it has room for 3 images, window top bar, and tab bar
-win_size = (700, 128*3 + 65)
+# Height is selected so that it has room for board images, window top bar, and tab bar
+win_size = (700, 450)
 
 # Create application window
 root = Tk()
 root.title("Online Boardgame")
 
+# Image file 
 # Tic-tac-toe images, size 128x128
-BLANK_IMAGE = PhotoImage(file="resources/blank_128x128.png")
-X_IMAGE = PhotoImage(file="resources/X_image.png")
-O_IMAGE = PhotoImage(file="resources/O_image.png")
+BLANK_IMAGE = PhotoImage(file="client/resources/blank_128x128.png")
+X_IMAGE = PhotoImage(file="client/resources/X_image.png")
+O_IMAGE = PhotoImage(file="client/resources/O_image.png")
 
 # Checkers images, size 43x43
-SMALL_BLANK_IMAGE = PhotoImage(file="resources/blank_43x43.png")
-B_CHECKER_IMAGE = PhotoImage(file="resources/black_checker.png")
-W_CHECKER_IMAGE = PhotoImage(file="resources/white_checker.png")
-BK_CHECKER_IMAGE = PhotoImage(file="resources/black_king.png")
-WK_CHECKER_IMAGE = PhotoImage(file="resources/white_king.png")
+SMALL_BLANK_IMAGE = PhotoImage(file="client/resources/blank_43x43.png")
+B_CHECKER_IMAGE = PhotoImage(file="client/resources/black_checker.png")
+W_CHECKER_IMAGE = PhotoImage(file="client/resources/white_checker.png")
+BK_CHECKER_IMAGE = PhotoImage(file="client/resources/black_king.png")
+WK_CHECKER_IMAGE = PhotoImage(file="client/resources/white_king.png")
 
 # Adjust window size and location. Format: WIDTHxHEIGHT+x_coord+y_coord, anchor point is upper left corner
 root.geometry(f"{win_size[0]}x{win_size[1]}+200+120")
@@ -46,6 +47,11 @@ chk_selected_piece = None
 username = 123
 password = 123
 
+# Settings
+settings = {
+    "autojoin": BooleanVar()
+}
+
 # Variables
 current_tab = "profile"
 game_id = None
@@ -58,7 +64,7 @@ prof_frame = Frame(tabControl)
 prof_frame.grid(sticky="sewn")
 
 prof_note = Label(prof_frame, text="", font=("", 15))
-prof_note.place(x=560, y=400, anchor="center")
+prof_note.place(x=690, y=425, anchor="se")
 
 def checkLogin():
     name = name_entry.get()
@@ -88,16 +94,24 @@ def checkLogin():
             notify("Incorrect password")
 
 # Login frame
-Label(prof_frame, text="Login", font=("", 25)).grid(row=0, column=0, sticky="nw")
+Label(prof_frame, text="Change user:", font=("", 25)).grid(row=0, column=0, columnspan=2, sticky="nw")
 Label(prof_frame, text="Username:", font=("", 15)).grid(row=1, column=0, sticky="w")
 Label(prof_frame, text="Password:", font=("", 15)).grid(row=2, column=0, sticky="w")
 
+# Username and password fields
 name_entry = Entry(prof_frame)
 name_entry.grid(row=1, column=1, sticky="w")
 pass_entry = Entry(prof_frame)
 pass_entry.grid(row=2, column=1, sticky="w")
 
-Button(prof_frame, text="test", command=checkLogin).grid(row=3, column=0, sticky="w")
+# Login/Register button
+Button(prof_frame, text="Login/Register", command=checkLogin, font=("", 13)).grid(row=3, column=0)
+
+checkbox_autojoin = Checkbutton(
+    prof_frame, text="Auto-Join after move", variable=settings["autojoin"], font=("", 15),
+    onvalue=True, offvalue=False
+)
+checkbox_autojoin.place(x=10, y=420, anchor="sw")
 
 #--------------------------------------------------------------
 #-- Tic-tac-toe tab -------------------------------------------
@@ -109,7 +123,7 @@ tic_frame.grid(sticky="sewn")
 Label(tic_frame, text="Tic-tac-toe", font=("", 30)).grid(row=0, column=4, sticky="n", padx=40)
 
 tic_note = Label(tic_frame, text="", font=("", 15))
-tic_note.place(x=560, y=400, anchor="center")
+tic_note.place(x=690, y=425, anchor="se")
 
 tic_team_note = Label(tic_frame, text="", font=("", 15))
 tic_team_note.place(x=560, y=60, anchor="center")
@@ -117,21 +131,19 @@ tic_team_note.place(x=560, y=60, anchor="center")
 Button(
     tic_frame, background="grey", bd=6,
     text="New Game", font=("", 17),
-    command= lambda: getNewGame()
+    command= lambda: joinRandomGame()
 ).place(x=560, y=120, anchor="center")
 
 #--------------------------------------------------------------
 #-- Checkers tab ----------------------------------------------
 #--------------------------------------------------------------
-# Create checkers container
 chk_frame = Frame(tabControl)
 chk_frame.grid(sticky="sewn")
 
-# Draw checkers game info and controls
 Label(chk_frame, text="Checkers", font=("", 30)).grid(row=0, column=8, sticky="n", padx=45)
 
 chk_note = Label(chk_frame, text="", font=("", 15))
-chk_note.place(x=560, y=400, anchor="center")
+chk_note.place(x=690, y=425, anchor="se")
 
 chk_team_note = Label(chk_frame, text="", font=("", 15))
 chk_team_note.place(x=560, y=60, anchor="center")
@@ -139,10 +151,12 @@ chk_team_note.place(x=560, y=60, anchor="center")
 Button(
     chk_frame, background="grey", bd=6,
     text="New Game", font=("", 17),
-    command= lambda: getNewGame()
+    command= lambda: joinRandomGame()
 ).place(x=560, y=120, anchor="center")
 
-# Prepare and show tabs
+#--------------------------------------------------------------
+#-- Draw tabs -------------------------------------------------
+#--------------------------------------------------------------
 tabControl.add(prof_frame, text="Profile")
 tabControl.add(tic_frame, text="Tic-tac-toe")
 tabControl.add(chk_frame, text="Checkers")
@@ -154,7 +168,20 @@ tabControl.pack(fill="both")
 def updateCurrentTab(_):
     global current_tab
     current_tab = tabControl.tab(tabControl.select(), "text").lower().replace("-", "")
+    leaveCurrentGame()
 tabControl.bind("<<NotebookTabChanged>>", updateCurrentTab)
+
+def leaveCurrentGame():
+    # If in a game, leave it by sending empty move
+    global game_id
+    if game_id is None: return
+    with requests.session() as ses:
+        data = json.dumps({"move": "", "moveTime": 0})
+        ses.post(API_ROUTE + "/api/games/" + game_id + "/moves", data)
+        game_id = None
+    notify("Left game")
+    tic_team_note.config(text="")
+    chk_team_note.config(text="")
 
 def boardInput(board_index):
     if game_id is None:
@@ -182,21 +209,24 @@ def boardInput(board_index):
         # Move previously selected piece to new position
         move = (chk_selected_piece, board_index)
     
-    print(move)
-    
     with requests.Session() as ses:
         ses.headers["username"] = str(username)
         ses.headers["password"] = str(password)
         ses.headers["Content-Type"] = "application/json"
         data = json.dumps({"move": move, "moveTime": 1})
-        print(data)
         
         resp = ses.post(API_ROUTE + "/api/games/" + game_id + "/moves", data)
         if resp.status_code == 200:
             notify("Move successful")
             drawMoveLocally(move)
-        else:
-            print(resp.status_code)
+            
+            # Hide team label to avoid confusion
+            tic_team_note.config(text="")
+            chk_team_note.config(text="")
+            
+            # Join new game if autojoin is enabled
+            if settings["autojoin"].get():
+                root.after(400, joinRandomGame)
         
 def notify(text: str):
     # Select notification label of the current tab
@@ -214,8 +244,8 @@ def notify(text: str):
     # Reset notification text after 2 seconds
     global notification_ids
     if notification_ids[current_tab] is not None:
-        root.after_cancel(notification_ids[current_tab])
-    notification_ids[current_tab] = root.after(2000, label.config, {"text":""})
+        label.after_cancel(notification_ids[current_tab])
+    notification_ids[current_tab] = label.after(2000, label.config, {"text":""})
 
 def drawMoveLocally(move: int | tuple[int, int]):
     if current_tab == "tictactoe":
@@ -233,14 +263,17 @@ def drawMoveLocally(move: int | tuple[int, int]):
         chk_board[move[1]].config(image=mark)
         chk_board[move[0]].config(image=SMALL_BLANK_IMAGE)
         
-
+        # If jumped over a mark, remove it
+        if (move[0] - move[1]) % 14 == 0 or (move[0] - move[1]) % 18 == 0:
+            chk_board[(move[0] + move[1]) / 2].config(image=SMALL_BLANK_IMAGE)
+        
 def updateBoard():
     # Updates corresponding board with new state
     # Also marks current team
     global board_state
     state = board_state[1:]
     if current_tab == "tictactoe":
-        tic_team_note.config(text="Team" + str(board_state[0]))
+        tic_team_note.config(text="Playing on team " + str(board_state[0]))
         for i in range(9):
             match state[i]:
                 case "-":
@@ -251,7 +284,7 @@ def updateBoard():
                     image = O_IMAGE
             tic_board[i].config(image=image)
     elif current_tab == "checkers":
-        chk_team_note.config(text="Team" + str(board_state[0]))
+        chk_team_note.config(text="Playing on team " + str(board_state[0]))
         for i in range(64):
             match state[i]:
                 case "-":
@@ -266,18 +299,13 @@ def updateBoard():
                     image = WK_CHECKER_IMAGE
             chk_board[i].config(image=image)
 
-def getNewGame():
-    global game_id
+def joinRandomGame():
     if username is None or password is None:
         notify("Login before playing")
         return
+    leaveCurrentGame()
+    
     with requests.session() as ses:
-        # Leave previous game
-        if game_id is not None:
-            data = json.dumps({"move": "", "moveTime": 0})
-            ses.post(API_ROUTE + "/api/games/" + game_id + "/moves", data)
-            game_id = None
-        
         # If a checker piece was selected, deselect it before new game
         global chk_selected_piece
         if chk_selected_piece is not None:
@@ -297,6 +325,7 @@ def getNewGame():
         notify("Game joined")
         
         # Save game id and get board state
+        global game_id
         game_id = join_href.split("/")[-2]
         game_resp = ses.get(API_ROUTE + "/api/games/" + game_id)
         if game_resp.status_code != 200: return
