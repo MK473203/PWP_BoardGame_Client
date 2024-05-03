@@ -44,8 +44,8 @@ board_state = ""
 chk_selected_piece = None
 
 # User
-username = 123
-password = 123
+username = None
+password = None
 
 # Settings
 settings = {
@@ -66,6 +66,18 @@ prof_frame.grid(sticky="sewn")
 prof_note = Label(prof_frame, text="", font=("", 15))
 prof_note.place(x=690, y=425, anchor="se")
 
+def updateUserPanel():
+    with requests.Session() as ses:
+        ses.headers["username"] = str(username)
+        ses.headers["password"] = str(password)
+        resp = ses.get(API_ROUTE + "/api/users/" + str(username))
+        if resp.status_code != 200: return
+        
+        data = resp.json()
+        uinfo_name.config(text=username)
+        uinfo_turncount.config(text="Turns played: " + str(data["turnsPlayed"]))
+        uinfo_gametime.config(text="Playtime: " + str(data["totalTime"]))
+
 def checkLogin():
     name = name_entry.get()
     pwd = pass_entry.get()
@@ -79,6 +91,7 @@ def checkLogin():
         if resp.status_code == 200:
             username = name
             password = pwd
+            updateUserPanel()
             notify("Logged in")
         elif resp.status_code == 404:
             data = json.dumps({"name": name, "password": pwd})
@@ -87,6 +100,7 @@ def checkLogin():
             if register_resp.status_code == 201:
                 username = name
                 password = pwd
+                updateUserPanel()
                 notify("Created new user")
                 return
             notify("Username does not exist\n Unable to create new user")
@@ -103,6 +117,19 @@ name_entry = Entry(prof_frame)
 name_entry.grid(row=1, column=1, sticky="w")
 pass_entry = Entry(prof_frame)
 pass_entry.grid(row=2, column=1, sticky="w")
+
+# User information
+uinfo_frame = Frame(prof_frame, bg="lightgrey", width=300, height=win_size[1])
+uinfo_frame.place(x=win_size[0], y=0, anchor="ne")
+
+uinfo_name = Label(prof_frame, bg="lightgrey", text="", font=("", 25))
+uinfo_name.place(in_=uinfo_frame, relx=0.5, y=30, anchor="center")
+
+uinfo_turncount = Label(prof_frame, bg="lightgrey", text="", font=("", 15))
+uinfo_turncount.place(in_=uinfo_frame, relx=0.5, y=100, anchor="center")
+
+uinfo_gametime = Label(prof_frame, bg="lightgrey", text="", font=("", 15))
+uinfo_gametime.place(in_=uinfo_frame, relx=0.5, y=140, anchor="center")
 
 # Login/Register button
 Button(prof_frame, text="Login/Register", command=checkLogin, font=("", 13)).grid(row=3, column=0)
@@ -199,6 +226,8 @@ def updateCurrentTab(_):
     global current_tab
     current_tab = tabControl.tab(tabControl.select(), "text").lower().replace("-", "")
     leaveCurrentGame()
+    if current_tab == "profile":
+        updateUserPanel()
 tabControl.bind("<<NotebookTabChanged>>", updateCurrentTab)
 
 def leaveCurrentGame():
