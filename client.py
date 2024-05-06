@@ -1,20 +1,38 @@
+import sys
 import requests
 import json
 
 from tkinter import *
 from tkinter.ttk import Notebook
 
-# Update this address for remote access
-API_ROUTE = "http://127.0.0.1:5000"
+# Update this address to match the server
+HOST_ADDRESS = "http://127.0.0.1:5000"
 
-# Height is selected so that it has room for board images, window top bar, and tab bar
+# Static resources
+API_ADDRESS = HOST_ADDRESS + "/api/"
+GAMETYPES_ADDRESS = None
+USERS_ADDRESS = None
+GAMES_ADDRESS = None
+
+RANDOM_TTT_ADDRESS = None
+RANDOM_CHK_ADDRESS = None
+
+# Addresses for current game and its moves resource
+game_address = None
+moves_address = None
+
+# Global session for communication
+session = requests.Session()
+session.headers["Content-Type"] = "application/json"
+
+# Window size in pixels, board does not adjust to changes
 win_size = (700, 450)
 
 # Create application window
 root = Tk()
 root.title("Online Boardgame")
 
-# Image file 
+# Image files, paths sensitive to run context
 # Tic-tac-toe images, size 128x128
 BLANK_IMAGE = PhotoImage(file="client/resources/blank_128x128.png")
 X_IMAGE = PhotoImage(file="client/resources/X_image.png")
@@ -63,49 +81,16 @@ notification_ids = {"checkers": None, "tictactoe": None, "profile": None}
 prof_frame = Frame(tabControl)
 prof_frame.grid(sticky="sewn")
 
-prof_note = Label(prof_frame, text="", font=("", 15))
-prof_note.place(x=690, y=425, anchor="se")
-
-def updateUserPanel():
-    with requests.Session() as ses:
-        ses.headers["username"] = str(username)
-        ses.headers["password"] = str(password)
-        resp = ses.get(API_ROUTE + "/api/users/" + str(username))
-        if resp.status_code != 200: return
-        
-        data = resp.json()
-        uinfo_name.config(text=username)
-        uinfo_turncount.config(text="Turns played: " + str(data["turnsPlayed"]))
-        uinfo_gametime.config(text="Playtime: " + str(data["totalTime"]))
-
-def checkLogin():
-    name = name_entry.get()
-    pwd = pass_entry.get()
-    with requests.Session() as ses:
-        ses.headers["username"] = str(name)
-        ses.headers["password"] = str(pwd)
-        if len(name) == 0 or len(pwd) == 0:
-            return
-        resp = ses.get(API_ROUTE + "/api/users/" + name)
-        global username, password
-        if resp.status_code == 200:
-            username = name
-            password = pwd
-            updateUserPanel()
-            notify("Logged in")
-        elif resp.status_code == 404:
-            data = json.dumps({"name": name, "password": pwd})
-            headers = {"Content-Type": "application/json"}
-            register_resp = ses.post(API_ROUTE + "/api/users/", data, headers=headers)
-            if register_resp.status_code == 201:
-                username = name
-                password = pwd
-                updateUserPanel()
-                notify("Created new user")
-                return
-            notify("Username does not exist\n Unable to create new user")
-        elif resp.status_code == 403:
-            notify("Incorrect password")
+def updateUserInfo():
+    # Get user statistics
+    resp = session.get(USERS_ADDRESS + username)
+    if resp.status_code != 200: return
+    
+    # Display user info
+    data = resp.json()
+    uinfo_name.config(text=username)
+    uinfo_turncount.config(text="Turns played: " + str(data["turnsPlayed"]))
+    uinfo_gametime.config(text="Playtime: " + str(data["totalTime"]))
 
 # Login frame
 Label(prof_frame, text="Change user:", font=("", 25)).grid(row=0, column=0, columnspan=2, sticky="nw")
@@ -131,6 +116,40 @@ uinfo_turncount.place(in_=uinfo_frame, relx=0.5, y=100, anchor="center")
 uinfo_gametime = Label(prof_frame, bg="lightgrey", text="", font=("", 15))
 uinfo_gametime.place(in_=uinfo_frame, relx=0.5, y=140, anchor="center")
 
+# Login button function
+def checkLogin():
+    name = name_entry.get()
+    pwd = pass_entry.get()
+    if len(name) == 0 or len(pwd) == 0: return
+    
+    # Local login
+    session.headers["username"] = name
+    session.headers["password"] = pwd
+    
+    resp = session.get(USERS_ADDRESS + name)
+    global username, password
+    if resp.status_code == 200:
+        # Credentials are valid, login
+        username = name
+        password = pwd
+        updateUserInfo()
+        notify("Logged in")
+    elif resp.status_code == 404:
+        # Username not found, register new user
+        data = json.dumps({"name": name, "password": pwd})
+        register_resp = session.post(USERS_ADDRESS, data)
+        if register_resp.status_code == 201:
+            # New user created
+            username = name
+            password = pwd
+            updateUserInfo()
+            notify("Created new user")
+            return
+        # Failed to create new user
+        notify("Username does not exist\n Unable to create new user")
+    elif resp.status_code == 403:
+        notify("Incorrect password")
+
 # Login/Register button
 Button(prof_frame, text="Login/Register", command=checkLogin, font=("", 13)).grid(row=3, column=0)
 
@@ -139,6 +158,10 @@ checkbox_autojoin = Checkbutton(
     onvalue=True, offvalue=False
 )
 checkbox_autojoin.place(x=10, y=420, anchor="sw")
+
+# Notification is drawn last so it appears on top of other elements
+prof_note = Label(prof_frame, bg="lightgrey", text="", font=("", 15))
+prof_note.place(x=690, y=425, anchor="se")
 
 #--------------------------------------------------------------
 #-- Tic-tac-toe tab -------------------------------------------
@@ -226,24 +249,31 @@ def updateCurrentTab(_):
     global current_tab
     current_tab = tabControl.tab(tabControl.select(), "text").lower().replace("-", "")
     leaveCurrentGame()
-    if current_tab == "profile":
-        updateUserPanel()
+    if current_tab == "profile" and username is not None and password is not None:
+        updateUserInfo()
 tabControl.bind("<<NotebookTabChanged>>", updateCurrentTab)
 
 def leaveCurrentGame():
-    # If in a game, leave it by sending empty move
-    global game_id
-    if game_id is None: return
-    with requests.session() as ses:
-        data = json.dumps({"move": "", "moveTime": 0})
-        ses.post(API_ROUTE + "/api/games/" + game_id + "/moves", data)
-        game_id = None
+    global game_address, moves_address
+    
+    # If not in game, return
+    if game_address is None: return
+
+    # Make an empty move to leave the game
+    data = json.dumps({"move": "", "moveTime": 0})
+    session.post(moves_address, data)
+    
+    # Forget previous game addresses
+    game_address = None
+    moves_address = None
+    
+    # Update visuals
     notify("Left game")
     tic_team_note.config(text="")
     chk_team_note.config(text="")
 
 def boardInput(board_index):
-    if game_id is None:
+    if game_address is None:
         notify("Join game before playing")
         return
     elif username is None or password is None:
@@ -255,7 +285,7 @@ def boardInput(board_index):
     if current_tab == "tictactoe":
         move = board_index
     elif chk_selected_piece is None:
-        # Select piece to move
+        # Select checkers piece to move
         chk_selected_piece = board_index
         chk_board[board_index].config(bg="grey")
         return
@@ -268,24 +298,20 @@ def boardInput(board_index):
         # Move previously selected piece to new position
         move = (chk_selected_piece, board_index)
     
-    with requests.Session() as ses:
-        ses.headers["username"] = str(username)
-        ses.headers["password"] = str(password)
-        ses.headers["Content-Type"] = "application/json"
-        data = json.dumps({"move": move, "moveTime": 1})
+    data = json.dumps({"move": move, "moveTime": 1})
+    
+    resp = session.post(moves_address, data)
+    if resp.status_code == 200:
+        notify("Move successful")
+        drawMoveLocally(move)
         
-        resp = ses.post(API_ROUTE + "/api/games/" + game_id + "/moves", data)
-        if resp.status_code == 200:
-            notify("Move successful")
-            drawMoveLocally(move)
-            
-            # Hide team label to avoid confusion
-            tic_team_note.config(text="")
-            chk_team_note.config(text="")
-            
-            # Join new game if autojoin is enabled
-            if settings["autojoin"].get():
-                root.after(400, joinRandomGame)
+        # Hide team label to avoid confusion
+        tic_team_note.config(text="")
+        chk_team_note.config(text="")
+        
+        # Join new game if autojoin is enabled
+        if settings["autojoin"].get():
+            root.after(400, joinRandomGame)
         
 def notify(text: str):
     # Select notification label of the current tab
@@ -364,36 +390,67 @@ def joinRandomGame():
         return
     leaveCurrentGame()
     
-    with requests.session() as ses:
-        # If a checker piece was selected, deselect it before new game
-        global chk_selected_piece
-        if chk_selected_piece is not None:
-            chk_board[chk_selected_piece].config(bg="lightgrey")
-            chk_selected_piece = None
+    # If a checker piece was selected, deselect it before new game
+    global chk_selected_piece
+    if chk_selected_piece is not None:
+        chk_board[chk_selected_piece].config(bg="lightgrey")
+        chk_selected_piece = None
+    
+    # Get random game, gametype detected from tab name
+    if current_tab == "tictactoe":
+        address = RANDOM_TTT_ADDRESS
+    else:
+        address = RANDOM_CHK_ADDRESS
+    getrandom_resp = session.get(address)
+    if getrandom_resp.status_code != 200: return
+    
+    # Join the received game
+    join_href = getrandom_resp.json()["@controls"]["boardgame:join-game"]["href"]
+    join_resp = session.post(HOST_ADDRESS + join_href)
+    if join_resp.status_code != 200: return
+    notify("Game joined")
+    
+    # Save game- and moves address
+    global game_address, moves_address
+    game_address = HOST_ADDRESS + join_resp.headers["Location"]
+    moves_address = HOST_ADDRESS + join_resp.json()["@controls"]["boardgame:make-move"]["href"]
+    
+    # Get board state
+    game_resp = session.get(game_address)
+    if game_resp.status_code != 200: return
+    
+    # Save and draw board state
+    global board_state
+    board_state = game_resp.json()["state"]
+    updateBoard()
+
+def fetchResourceAddresses():
+    global HOST_ADDRESS, API_ADDRESS, USERS_ADDRESS, GAMETYPES_ADDRESS, GAMES_ADDRESS
+    global RANDOM_CHK_ADDRESS, RANDOM_TTT_ADDRESS
+    init_resp = session.get(API_ADDRESS)
+    if init_resp.status_code == 200:
+        USERS_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:users-all"]["href"]
+        GAMETYPES_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:gametypes-all"]["href"]
         
-        # Get random game, gametype detected from tab name
-        ses.headers["username"] = str(username)
-        ses.headers["password"] = str(password)
-        resp = ses.get(API_ROUTE + "/api/games/random/" + current_tab)
-        if resp.status_code != 200: return
+        gametypes_resp = session.get(GAMETYPES_ADDRESS)
+        if gametypes_resp.status_code != 200:
+            print("Could not get gametypes.")
+            sys.exit()
         
-        # Join the received game
-        join_href = resp.json()["@controls"]["boardgame:join-game"]["href"]
-        join_resp = ses.post(API_ROUTE + join_href)
-        if join_resp.status_code != 200: return
-        notify("Game joined")
-        
-        # Save game id and get board state
-        global game_id
-        game_id = join_href.split("/")[-2]
-        game_resp = ses.get(API_ROUTE + "/api/games/" + game_id)
-        if game_resp.status_code != 200: return
-        
-        # Save and draw board state
-        global board_state
-        board_state = game_resp.json()["state"]
-        updateBoard()
-        
+        GAMES_ADDRESS = HOST_ADDRESS + gametypes_resp.json()["@controls"]["boardgame:games-all"]["href"]
+
+        # Routes for random games
+        for gtype in gametypes_resp.json()["items"]:
+            self_resp = session.get(HOST_ADDRESS + gtype["@controls"]["self"]["href"])
+            if self_resp.status_code != 200:
+                print("Could not get gametype " + gtype["name"] + ".")
+                sys.exit()
+            
+            if gtype["name"] == "tictactoe":
+                RANDOM_TTT_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
+            elif gtype["name"] == "checkers":
+                RANDOM_CHK_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
+            
 # Draw tic-tac-toe board
 for x in range(3):
     for y in range(3):
@@ -416,5 +473,6 @@ for x in range(8):
         bt.grid(column=x, row=y, sticky="sewn")
         chk_board[x+y*8] = bt
 
-# Start GUI loop
+fetchResourceAddresses()
 root.mainloop()
+session.close()
