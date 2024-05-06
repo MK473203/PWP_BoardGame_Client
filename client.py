@@ -2,6 +2,7 @@ import sys
 import requests
 import json
 
+from time import time
 from tkinter import *
 from tkinter.ttk import Notebook
 
@@ -16,10 +17,6 @@ GAMES_ADDRESS = None
 
 RANDOM_TTT_ADDRESS = None
 RANDOM_CHK_ADDRESS = None
-
-# Addresses for current game and its moves resource
-game_address = None
-moves_address = None
 
 # Global session for communication
 session = requests.Session()
@@ -61,6 +58,10 @@ chk_board: dict[int, Button] = {}
 board_state = ""
 chk_selected_piece = None
 
+# Addresses for current game and its moves resource
+game_address = None
+moves_address = None
+
 # User
 username = None
 password = None
@@ -71,8 +72,8 @@ settings = {
 }
 
 # Variables
+turn_start = 0
 current_tab = "profile"
-game_id = None
 notification_ids = {"checkers": None, "tictactoe": None, "profile": None}
 
 #--------------------------------------------------------------
@@ -298,7 +299,8 @@ def boardInput(board_index):
         # Move previously selected piece to new position
         move = (chk_selected_piece, board_index)
     
-    data = json.dumps({"move": move, "moveTime": 1})
+    turn_duration = time() - turn_start
+    data = json.dumps({"move": move, "moveTime": int(turn_duration)})
     
     resp = session.post(moves_address, data)
     if resp.status_code == 200:
@@ -420,9 +422,10 @@ def joinRandomGame():
     if game_resp.status_code != 200: return
     
     # Save and draw board state
-    global board_state
+    global board_state, turn_start
     board_state = game_resp.json()["state"]
     updateBoard()
+    turn_start = time()
 
 def fetchResourceAddresses():
     global HOST_ADDRESS, API_ADDRESS, USERS_ADDRESS, GAMETYPES_ADDRESS, GAMES_ADDRESS
