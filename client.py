@@ -1,6 +1,7 @@
 import sys
 import requests
 import json
+import pika
 
 from tkinter import *
 from tkinter.ttk import Notebook
@@ -450,7 +451,58 @@ def fetchResourceAddresses():
                 RANDOM_TTT_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
             elif gtype["name"] == "checkers":
                 RANDOM_CHK_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
-            
+
+### ADDED A SPEC FUNCTION, NEEDS MORE WORK ###
+def spectateGame():
+
+    # Check for a login required
+    if username is None or password is None:
+        notify("Login before spectating required")
+        return
+    
+    def notification_handler(ch, method, properties, body):
+        print(body)
+
+    with requests.session() as ses:
+        # Get random game
+        ses.headers["username"] = str(username)
+        ses.headers["password"] = str(password)
+        resp = ses.get(HOST_ADDRESS + "/api/games/")
+        if resp.status_code != 200: return
+
+        game = resp.json()["items"][0]
+        resp = requests.get(HOST_ADDRESS + game["@controls"]["self"]["href"])
+
+        game = resp.json()
+        resp = requests.get(game["@controls"]["boardgame:spectate"]["href"])
+
+        RABBITMQ_EXCHANGE = resp.json()["exchange"]
+        RABBITMQ_BROKER_URL = resp.json()["@controls"]["amqp-url"]
+
+        print(RABBITMQ_EXCHANGE)
+        print(RABBITMQ_BROKER_URL)
+
+        print("create connection")
+        connection = pika.BlockingConnection(
+            pika.URLParameters(RABBITMQ_BROKER_URL))
+        channel = connection.channel()
+        channel.exchange_declare(
+            exchange=RABBITMQ_EXCHANGE,
+            exchange_type="fanout"
+        )
+        result = channel.queue_declare(queue="", exclusive=True, auto_delete=True)
+        channel.queue_bind(
+            exchange=RABBITMQ_EXCHANGE,
+            queue=result.method.queue
+        )
+        channel.basic_consume(
+            queue=result.method.queue,
+            on_message_callback=notification_handler,
+            auto_ack=True
+        )
+        print("start consuming")
+        channel.start_consuming()
+
 # Draw tic-tac-toe board
 for x in range(3):
     for y in range(3):
