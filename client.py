@@ -224,11 +224,8 @@ Button(
     text="Spectate Game", font=("", 17)
 ).place(x=560, y=120, anchor="center")
 
-Label(spec_frame, text="Game", font=("", 16) # Game to be replaced by api fetch with gametype, checkers or tictactoe
-      ).place(x=560, y=180, anchor="center")
-
-Label(spec_frame, text="Player1 - Player2", font=("", 16) # Player1 and player2 to be replaced by api fetch with usernames of the players
-      ).place(x=560, y=220, anchor="center")
+#List where information widgets will be stored
+specWidgets = []
 
 #Frame where the game to be spectated would be drawn, might need to be removed
 #to just use spec_frame instead
@@ -455,6 +452,39 @@ def fetchResourceAddresses():
             elif gtype["name"] == "checkers":
                 RANDOM_CHK_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
 
+### function for handling labels
+# Updates the labels with information about the current match the player is spectating
+def updateLabel(game_type, player_name):
+    gameLabel = Label(spec_frame, text=game_type, font=("", 16))
+    gameLabel.place(x=560, y=180, anchor="center")
+    specWidgets.append(gameLabel)
+    
+    playerLabel = Label(spec_frame, text=player_name, font=("", 16))
+    playerLabel.place(x=560, y=220, anchor="center")
+    specWidgets.append(playerLabel)
+    
+    stopButton = Button(
+                        spec_frame, background="lightgrey", bd=6,
+                        text="Stop spectating", font=("", 17), command=lambda: clearSpectatorInfo()
+                    )
+    stopButton.place(x=560, y=300, anchor="center")
+    specWidgets.append(stopButton)
+    
+    Label(game_frame, text="Testing!", bg="#FFFFFF", font=("", 16)).place(x=200, y=200, anchor="center")
+
+# Clear the information about the match provided to the spectator
+def clearSpectatorInfo():
+    # Clears game frame
+    for widget in game_frame.winfo_children():
+        widget.destroy()
+
+    # Clears gametype, player making the move and stop button
+    for item in specWidgets:
+        item.destroy()
+
+    # Clear the list from widgets
+    specWidgets.clear()
+
 ### ADDED A SPEC FUNCTION, NEEDS MORE WORK ###
 def spectateGame():
 
@@ -465,7 +495,7 @@ def spectateGame():
     
     def notification_handler(ch, method, properties, body):
         print(body)
-
+    
     with requests.session() as ses:
         # Get random game
         ses.headers["username"] = str(username)
@@ -505,6 +535,11 @@ def spectateGame():
         )
         print("start consuming")
         channel.start_consuming()
+
+    ### TODO
+    # FETCH API INFO ABOUT THE GAME
+    # CALL updateLabel(gametype_info, playername)
+    # Draw the game to be spectated and its current state to game_frame
 
 # Draw tic-tac-toe board
 for x in range(3):
