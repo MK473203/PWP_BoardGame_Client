@@ -222,7 +222,8 @@ spec_note.place(x=560, y=400, anchor="center")
 # Needs the command for spectateGame() when function completed
 Button(
     spec_frame, background="grey", bd=6,
-    text="Spectate Game", font=("", 17)
+    text="Spectate Game", font=("", 17),
+    command= lambda: spectateGame()
 ).place(x=560, y=120, anchor="center")
 
 #List where information widgets will be stored
@@ -470,7 +471,9 @@ def updateLabel(game_type, player_name):
                     )
     stopButton.place(x=560, y=300, anchor="center")
     specWidgets.append(stopButton)
-    
+
+    # THIS NEEDS TO BE CHANGED TO SOMETHING THAT DRAWS THE SPECTATED GAME TO GAMEFRAME
+    # maybe 3rd parameter
     Label(game_frame, text="Testing!", bg="#FFFFFF", font=("", 16)).place(x=200, y=200, anchor="center")
 
 # Clear the information about the match provided to the spectator
@@ -512,7 +515,7 @@ def spectateGame():
         return
     resp = session.get(HOST_ADDRESS + game["@controls"]["self"]["href"])
 
-    # Access the current player and game type
+    # Access the current player and game type of the game
     game_resp = session.get(resp)
     game_data = game_resp.json()
     current_player_id = game_data["currentPlayer"]
