@@ -1,5 +1,6 @@
 import sys
 import requests
+import threading
 import json
 import pika
 
@@ -23,6 +24,8 @@ RANDOM_CHK_ADDRESS = None
 # Global session for communication
 session = requests.Session()
 session.headers["Content-Type"] = "application/json"
+spec_thread = None
+spec_connection = None
 
 # Window size in pixels, board does not adjust to changes
 win_size = (700, 450)
@@ -76,7 +79,7 @@ settings = {
 # Variables
 turn_start = 0
 current_tab = "profile"
-notification_ids = {"checkers": None, "tictactoe": None, "profile": None}
+notification_ids = {"checkers": None, "tictactoe": None, "profile": None, "spectate": None}
 
 #--------------------------------------------------------------
 #-- Profile tab -----------------------------------------------
@@ -216,6 +219,9 @@ spec_frame.grid(sticky="sewn")
 #padx needs to probably be fixed after button command works
 Label(spec_frame, text="Spectate", font=("", 30)).grid(sticky="n", padx=480)
 
+spec_game_id_entry = Entry(spec_frame)
+spec_game_id_entry.place(x=560, y=80, anchor="center")
+
 spec_note = Label(spec_frame, text="", font=("", 15))
 spec_note.place(x=560, y=400, anchor="center")
 
@@ -301,6 +307,7 @@ def boardInput(board_index):
     
     turn_duration = time() - turn_start
     data = json.dumps({"move": move, "moveTime": int(turn_duration)})
+    print(data)
     
     resp = session.post(moves_address, data)
     if resp.status_code == 200:
@@ -323,6 +330,8 @@ def notify(text: str):
         label = chk_note
     elif current_tab == "profile":
         label = prof_note
+    elif current_tab == "spectate":
+        label = spec_note
     else: return
     
     # Display the notification
@@ -434,13 +443,13 @@ def fetchResourceAddresses():
     if init_resp.status_code == 200:
         USERS_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:users-all"]["href"]
         GAMETYPES_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:gametypes-all"]["href"]
+        GAMES_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:games-all"]["href"]
         
         gametypes_resp = session.get(GAMETYPES_ADDRESS)
         if gametypes_resp.status_code != 200:
             print("Could not get gametypes.")
             sys.exit()
         
-        GAMES_ADDRESS = HOST_ADDRESS + gametypes_resp.json()["@controls"]["boardgame:games-all"]["href"]
 
         # Routes for random games
         for gtype in gametypes_resp.json()["items"]:
@@ -467,7 +476,7 @@ def updateLabel(game_type, player_name):
     
     stopButton = Button(
                         spec_frame, background="lightgrey", bd=6,
-                        text="Stop spectating", font=("", 17), command=lambda: clearSpectatorInfo()
+                        text="Stop spectating", font=("", 17), command=lambda: stopSpectating()
                     )
     stopButton.place(x=560, y=300, anchor="center")
     specWidgets.append(stopButton)
@@ -475,6 +484,18 @@ def updateLabel(game_type, player_name):
     # THIS NEEDS TO BE CHANGED TO SOMETHING THAT DRAWS THE SPECTATED GAME TO GAMEFRAME
     # maybe 3rd parameter
     Label(game_frame, text="Testing!", bg="#FFFFFF", font=("", 16)).place(x=200, y=200, anchor="center")
+
+def stopSpectating():
+    # Stop the spectator connection and thread and then clear the spectating screen
+    global spec_connection, spec_thread
+    if spec_connection is not None:
+        spec_connection.close()
+        spec_connection = None
+    if spec_thread is not None:
+        spec_thread.join()
+        spec_thread = None
+    print("Stopped spectating")
+    clearSpectatorInfo()
 
 # Clear the information about the match provided to the spectator
 def clearSpectatorInfo():
@@ -494,67 +515,66 @@ def clearSpectatorInfo():
 # see if updateLabel needs to be updated to take a third parameter: game
 # which could then be used to draw the game to game_frame
 def spectateGame():
+    global spec_thread
+
+    def notification_handler(ch, method, properties, body):
+        print(body)
+
+    def spectator_thread(exchange, broker_url):
+        global spec_connection
+
+        print(exchange)
+        print(broker_url)
+
+        print("create connection")
+        spec_connection = pika.BlockingConnection(
+            pika.URLParameters(broker_url))
+        channel = spec_connection.channel()
+        channel.exchange_declare(
+            exchange=exchange,
+            exchange_type="fanout"
+        )
+        result = channel.queue_declare(queue="", exclusive=True, auto_delete=True)
+        channel.queue_bind(
+            exchange=exchange,
+            queue=result.method.queue
+        )
+        channel.basic_consume(
+            queue=result.method.queue,
+            on_message_callback=notification_handler,
+            auto_ack=True
+        )
+        print("start consuming")
+        channel.start_consuming()
+
+    stopSpectating()
 
     # Check for a login required
     if username is None or password is None:
         notify("Login before spectating required")
         return
     
-    def notification_handler(ch, method, properties, body):
-        print(body)
-    
     # Get random game
     session.headers["username"] = str(username)
     session.headers["password"] = str(password)
-    resp = session.get(HOST_ADDRESS + "/api/games/")
-    if resp.status_code != 200: return
+    resp = session.get(GAMES_ADDRESS + spec_game_id_entry.get())
 
-    game = resp.json()["items"][0]
-    if not game:
-        messagebox.showinfo("Info", "No games available to be spectated")
+    if resp.status_code == 404:
+        notify("Game not found")
         return
-    resp = session.get(HOST_ADDRESS + game["@controls"]["self"]["href"])
-
-    # Access the current player and game type of the game
-    game_resp = session.get(resp)
-    game_data = game_resp.json()
-    current_player_id = game_data["currentPlayer"]
-    game_type_id = game_data["type"]
-    user_resp = session.get(HOST_ADDRESS + "/users/" + str(current_player_id))
-    game_type_resp = session.get(HOST_ADDRESS + "/game_types/" + str(game_type_id))
-
-    # Call the updateLabel function with this information
-    updateLabel(user_resp, game_type_resp)
+    elif resp.status_code != 200:
+        notify("Could not get game information")
+        return
 
     game = resp.json()
+    updateLabel(game["type"], game["currentPlayer"])
     resp = session.get(game["@controls"]["boardgame:spectate"]["href"])
 
-    RABBITMQ_EXCHANGE = resp.json()["exchange"]
-    RABBITMQ_BROKER_URL = resp.json()["@controls"]["amqp-url"]
+    exchange = resp.json()["exchange"]
+    broker_url = resp.json()["@controls"]["amqp-url"]
 
-    print(RABBITMQ_EXCHANGE)
-    print(RABBITMQ_BROKER_URL)
-
-    print("create connection")
-    connection = pika.BlockingConnection(
-        pika.URLParameters(RABBITMQ_BROKER_URL))
-    channel = connection.channel()
-    channel.exchange_declare(
-        exchange=RABBITMQ_EXCHANGE,
-        exchange_type="fanout"
-    )
-    result = channel.queue_declare(queue="", exclusive=True, auto_delete=True)
-    channel.queue_bind(
-        exchange=RABBITMQ_EXCHANGE,
-        queue=result.method.queue
-    )
-    channel.basic_consume(
-        queue=result.method.queue,
-        on_message_callback=notification_handler,
-        auto_ack=True
-    )
-    print("start consuming")
-    channel.start_consuming()
+    spec_thread = threading.Thread(target=spectator_thread, args=(exchange, broker_url))
+    spec_thread.start()
 
 # Draw tic-tac-toe board
 for x in range(3):
