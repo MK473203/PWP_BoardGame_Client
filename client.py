@@ -5,6 +5,7 @@ import pika
 
 from time import time
 from tkinter import *
+from tkinter import messagebox
 from tkinter.ttk import Notebook
 
 # Update this address to match the server
@@ -486,6 +487,9 @@ def clearSpectatorInfo():
     specWidgets.clear()
 
 ### ADDED A SPEC FUNCTION, NEEDS MORE WORK ###
+# TODO:
+# see if updateLabel needs to be updated to take a third parameter: game
+# which could then be used to draw the game to game_frame
 def spectateGame():
 
     # Check for a login required
@@ -496,50 +500,58 @@ def spectateGame():
     def notification_handler(ch, method, properties, body):
         print(body)
     
-    with requests.session() as ses:
-        # Get random game
-        ses.headers["username"] = str(username)
-        ses.headers["password"] = str(password)
-        resp = ses.get(HOST_ADDRESS + "/api/games/")
-        if resp.status_code != 200: return
+    # Get random game
+    session.headers["username"] = str(username)
+    session.headers["password"] = str(password)
+    resp = session.get(HOST_ADDRESS + "/api/games/")
+    if resp.status_code != 200: return
 
-        game = resp.json()["items"][0]
-        resp = requests.get(HOST_ADDRESS + game["@controls"]["self"]["href"])
+    game = resp.json()["items"][0]
+    if not game:
+        messagebox.showinfo("Info", "No games available to be spectated")
+        return
+    resp = session.get(HOST_ADDRESS + game["@controls"]["self"]["href"])
 
-        game = resp.json()
-        resp = requests.get(game["@controls"]["boardgame:spectate"]["href"])
+    # Access the current player and game type
+    game_resp = session.get(resp)
+    game_data = game_resp.json()
+    current_player_id = game_data["currentPlayer"]
+    game_type_id = game_data["type"]
+    user_resp = session.get(HOST_ADDRESS + "/users/" + str(current_player_id))
+    game_type_resp = session.get(HOST_ADDRESS + "/game_types/" + str(game_type_id))
 
-        RABBITMQ_EXCHANGE = resp.json()["exchange"]
-        RABBITMQ_BROKER_URL = resp.json()["@controls"]["amqp-url"]
+    # Call the updateLabel function with this information
+    updateLabel(user_resp, game_type_resp)
 
-        print(RABBITMQ_EXCHANGE)
-        print(RABBITMQ_BROKER_URL)
+    game = resp.json()
+    resp = session.get(game["@controls"]["boardgame:spectate"]["href"])
 
-        print("create connection")
-        connection = pika.BlockingConnection(
-            pika.URLParameters(RABBITMQ_BROKER_URL))
-        channel = connection.channel()
-        channel.exchange_declare(
-            exchange=RABBITMQ_EXCHANGE,
-            exchange_type="fanout"
-        )
-        result = channel.queue_declare(queue="", exclusive=True, auto_delete=True)
-        channel.queue_bind(
-            exchange=RABBITMQ_EXCHANGE,
-            queue=result.method.queue
-        )
-        channel.basic_consume(
-            queue=result.method.queue,
-            on_message_callback=notification_handler,
-            auto_ack=True
-        )
-        print("start consuming")
-        channel.start_consuming()
+    RABBITMQ_EXCHANGE = resp.json()["exchange"]
+    RABBITMQ_BROKER_URL = resp.json()["@controls"]["amqp-url"]
 
-    ### TODO
-    # FETCH API INFO ABOUT THE GAME
-    # CALL updateLabel(gametype_info, playername)
-    # Draw the game to be spectated and its current state to game_frame
+    print(RABBITMQ_EXCHANGE)
+    print(RABBITMQ_BROKER_URL)
+
+    print("create connection")
+    connection = pika.BlockingConnection(
+        pika.URLParameters(RABBITMQ_BROKER_URL))
+    channel = connection.channel()
+    channel.exchange_declare(
+        exchange=RABBITMQ_EXCHANGE,
+        exchange_type="fanout"
+    )
+    result = channel.queue_declare(queue="", exclusive=True, auto_delete=True)
+    channel.queue_bind(
+        exchange=RABBITMQ_EXCHANGE,
+        queue=result.method.queue
+    )
+    channel.basic_consume(
+        queue=result.method.queue,
+        on_message_callback=notification_handler,
+        auto_ack=True
+    )
+    print("start consuming")
+    channel.start_consuming()
 
 # Draw tic-tac-toe board
 for x in range(3):
