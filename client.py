@@ -139,7 +139,7 @@ def checkLogin():
         username = name
         password = pwd
         updateUserInfo()
-        notify("Logged in")
+        notify("Logged in.")
     elif resp.status_code == 404:
         # Username not found, register new user
         data = json.dumps({"name": name, "password": pwd})
@@ -149,12 +149,12 @@ def checkLogin():
             username = name
             password = pwd
             updateUserInfo()
-            notify("Created new user")
+            notify("Created new user.")
             return
         # Failed to create new user
-        notify("Username does not exist\n Unable to create new user")
+        notify("Username does not exist.\n Unable to create new user.")
     elif resp.status_code == 403:
-        notify("Incorrect password")
+        notify("Incorrect password.")
 
 # Login/Register button
 Button(prof_frame, text="Login/Register", command=checkLogin, font=("", 13)).grid(row=3, column=0)
@@ -275,16 +275,16 @@ def leaveCurrentGame():
     moves_address = None
     
     # Update visuals
-    notify("Left game")
+    notify("Left game.")
     tic_team_note.config(text="")
     chk_team_note.config(text="")
 
 def boardInput(board_index):
     if game_address is None:
-        notify("Join game before playing")
+        notify("Join game before playing.")
         return
     elif username is None or password is None:
-        notify("Login before playing")
+        notify("Login before playing.")
         return
     
     # Extract users move from variables
@@ -311,7 +311,7 @@ def boardInput(board_index):
     
     resp = session.post(moves_address, data)
     if resp.status_code == 200:
-        notify("Move successful")
+        notify("Move successful.")
         drawMoveLocally(move)
         
         # Hide team label to avoid confusion
@@ -397,7 +397,7 @@ def updateBoard():
 
 def joinRandomGame():
     if username is None or password is None:
-        notify("Login before playing")
+        notify("Login before playing.")
         return
     leaveCurrentGame()
     
@@ -419,7 +419,7 @@ def joinRandomGame():
     join_href = getrandom_resp.json()["@controls"]["boardgame:join-game"]["href"]
     join_resp = session.post(HOST_ADDRESS + join_href)
     if join_resp.status_code != 200: return
-    notify("Game joined")
+    notify("Game joined.")
     
     # Save game- and moves address
     global game_address, moves_address
@@ -439,7 +439,16 @@ def joinRandomGame():
 def fetchResourceAddresses():
     global HOST_ADDRESS, API_ADDRESS, USERS_ADDRESS, GAMETYPES_ADDRESS, GAMES_ADDRESS
     global RANDOM_CHK_ADDRESS, RANDOM_TTT_ADDRESS
-    init_resp = session.get(API_ADDRESS)
+    
+    try:
+        init_resp = session.get(API_ADDRESS)
+        notify("Connected.")
+    except Exception:
+        notify("Failed to connect to server.")
+        root.after(2000, notify, "Exiting...")
+        root.after(4000, root.destroy)
+        return
+    
     if init_resp.status_code == 200:
         USERS_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:users-all"]["href"]
         GAMETYPES_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:gametypes-all"]["href"]
@@ -551,7 +560,7 @@ def spectateGame():
 
     # Check for a login required
     if username is None or password is None:
-        notify("Login before spectating required")
+        notify("Login before spectating required.")
         return
     
     # Get random game
@@ -560,10 +569,10 @@ def spectateGame():
     resp = session.get(GAMES_ADDRESS + spec_game_id_entry.get())
 
     if resp.status_code == 404:
-        notify("Game not found")
+        notify("Game not found.")
         return
     elif resp.status_code != 200:
-        notify("Could not get game information")
+        notify("Could not get game information.")
         return
 
     game = resp.json()
@@ -598,6 +607,7 @@ for x in range(8):
         bt.grid(column=x, row=y, sticky="sewn")
         chk_board[x+y*8] = bt
 
-fetchResourceAddresses()
+root.after(10, notify, "Connecting to server...")
+root.after(100, fetchResourceAddresses)
 root.mainloop()
 session.close()
