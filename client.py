@@ -1,9 +1,9 @@
-import sys
 import requests
 import threading
 import json
 import pika
 
+from math import ceil
 from time import time
 from tkinter import *
 from tkinter import messagebox
@@ -122,13 +122,13 @@ uinfo_turncount.place(in_=uinfo_frame, relx=0.5, y=100, anchor="center")
 uinfo_gametime = Label(prof_frame, bg="lightgrey", text="", font=("", 15))
 uinfo_gametime.place(in_=uinfo_frame, relx=0.5, y=140, anchor="center")
 
-# Login button function
+# Login function
 def checkLogin():
     name = name_entry.get()
     pwd = pass_entry.get()
     if len(name) == 0 or len(pwd) == 0: return
     
-    # Local login
+    # Set credentials
     session.headers["username"] = name
     session.headers["password"] = pwd
     
@@ -140,6 +140,9 @@ def checkLogin():
         password = pwd
         updateUserInfo()
         notify("Logged in.")
+        # Show user management buttons
+        logout_button.place(x=70, y=350, anchor="center")
+        delete_user_button.place(x=220, y=350, anchor="center")
     elif resp.status_code == 404:
         # Username not found, register new user
         data = json.dumps({"name": name, "password": pwd})
@@ -156,8 +159,62 @@ def checkLogin():
     elif resp.status_code == 403:
         notify("Incorrect password.")
 
+# Logout fucntion
+def logout():
+    # Local
+    global username, password
+    username = None
+    password = None
+    
+    # Session credentials
+    session.headers.pop("username")
+    session.headers.pop("password")
+    
+    # Visuals
+    uinfo_name.config(text="")
+    uinfo_gametime.config(text="")
+    uinfo_turncount.config(text="")
+    logout_button.place_forget()
+    delete_user_button.place_forget()
+    notify("Logged out.")
+
+# Delete user, user is asked to confirm
+def deleteUser():
+    if username is None or password is None:
+        return
+    
+    # Show confirmation window
+    popup = Toplevel(root)
+    popup.geometry("300x100+400+300")
+    popup.grab_set()
+    
+    Label(popup, text="Delete user?\nThis action is permanent!", font=("", 15)
+    ).place(x=150, y=30, anchor="center")
+    
+    # Confirm function
+    def confirmDelete():
+        delete_resp = session.delete(USERS_ADDRESS + username)
+        if delete_resp.status_code == 200:
+            logout()
+            notify("Deleted user.")
+        else:
+            notify("Failed to delete user.")
+        popup.destroy()
+    
+    # Confirm/cancel buttons
+    Button(popup, bg="darkgrey", text="Confirm", font=("", 13), command=confirmDelete
+    ).place(x=220, y=75, anchor="center")
+    Button(popup, bg="darkgrey", text="Cancel", font=("", 13), command=popup.destroy
+    ).place(x=80, y=75, anchor="center")
+
 # Login/Register button
 Button(prof_frame, text="Login/Register", command=checkLogin, font=("", 13)).grid(row=3, column=0)
+
+# Buttons for logging out and deleting user
+logout_button = Button(
+    uinfo_frame, bg="darkgray", text="Logout", font=("", 15), command=logout)
+delete_user_button = Button(
+    uinfo_frame, bg="darkgray", text="Delete user", font=("", 15), command=deleteUser)
 
 checkbox_autojoin = Checkbutton(
     prof_frame, text="Auto-Join after move", variable=settings["autojoin"], font=("", 15),
@@ -181,8 +238,11 @@ Label(tic_frame, text="Tic-tac-toe", font=("", 30)).grid(row=0, column=4, sticky
 tic_note = Label(tic_frame, text="", font=("", 15))
 tic_note.place(x=690, y=425, anchor="se")
 
-tic_team_note = Label(tic_frame, text="", font=("", 15))
-tic_team_note.place(x=560, y=60, anchor="center")
+tic_team_label = Label(tic_frame, text="", font=("", 15))
+tic_team_label.place(x=560, y=60, anchor="center")
+
+tic_gameid_label = Label(tic_frame, text="", font=("", 10))
+tic_gameid_label.place(x=560, y=200, anchor="center")
 
 Button(
     tic_frame, background="grey", bd=6,
@@ -201,8 +261,11 @@ Label(chk_frame, text="Checkers", font=("", 30)).grid(row=0, column=8, sticky="n
 chk_note = Label(chk_frame, text="", font=("", 15))
 chk_note.place(x=690, y=425, anchor="se")
 
-chk_team_note = Label(chk_frame, text="", font=("", 15))
-chk_team_note.place(x=560, y=60, anchor="center")
+chk_team_label = Label(chk_frame, text="", font=("", 15))
+chk_team_label.place(x=560, y=60, anchor="center")
+
+chk_gameid_label = Label(chk_frame, text="", font=("", 10))
+chk_gameid_label.place(x=560, y=200, anchor="center")
 
 Button(
     chk_frame, background="grey", bd=6,
@@ -276,8 +339,10 @@ def leaveCurrentGame():
     
     # Update visuals
     notify("Left game.")
-    tic_team_note.config(text="")
-    chk_team_note.config(text="")
+    tic_team_label.config(text="")
+    chk_team_label.config(text="")
+    tic_gameid_label.config(text="")
+    chk_gameid_label.config(text="")
 
 def boardInput(board_index):
     if game_address is None:
@@ -306,8 +371,7 @@ def boardInput(board_index):
         move = (chk_selected_piece, board_index)
     
     turn_duration = time() - turn_start
-    data = json.dumps({"move": move, "moveTime": int(turn_duration)})
-    print(data)
+    data = json.dumps({"move": move, "moveTime": ceil(turn_duration)})
     
     resp = session.post(moves_address, data)
     if resp.status_code == 200:
@@ -315,8 +379,8 @@ def boardInput(board_index):
         drawMoveLocally(move)
         
         # Hide team label to avoid confusion
-        tic_team_note.config(text="")
-        chk_team_note.config(text="")
+        tic_team_label.config(text="")
+        chk_team_label.config(text="")
         
         # Join new game if autojoin is enabled
         if settings["autojoin"].get():
@@ -369,7 +433,7 @@ def updateBoard():
     global board_state
     state = board_state[1:]
     if current_tab == "tictactoe":
-        tic_team_note.config(text="Playing on team " + str(board_state[0]))
+        tic_team_label.config(text="Playing on team " + str(board_state[0]))
         for i in range(9):
             match state[i]:
                 case "-":
@@ -380,7 +444,7 @@ def updateBoard():
                     image = O_IMAGE
             tic_board[i].config(image=image)
     elif current_tab == "checkers":
-        chk_team_note.config(text="Playing on team " + str(board_state[0]))
+        chk_team_label.config(text="Playing on team " + str(board_state[0]))
         for i in range(64):
             match state[i]:
                 case "-":
@@ -426,6 +490,13 @@ def joinRandomGame():
     game_address = HOST_ADDRESS + join_resp.headers["Location"]
     moves_address = HOST_ADDRESS + join_resp.json()["@controls"]["boardgame:make-move"]["href"]
     
+    # Show game id to user
+    game_id = game_address.split("/")[-1]
+    if current_tab == "tictactoe":
+        tic_gameid_label.config(text="Game id:\n" + game_id)
+    else:
+        chk_gameid_label.config(text="Game id:\n" + game_id)
+    
     # Get board state
     game_resp = session.get(game_address)
     if game_resp.status_code != 200: return
@@ -440,8 +511,10 @@ def fetchResourceAddresses():
     global HOST_ADDRESS, API_ADDRESS, USERS_ADDRESS, GAMETYPES_ADDRESS, GAMES_ADDRESS
     global RANDOM_CHK_ADDRESS, RANDOM_TTT_ADDRESS
     
+    # Get API entrypoint, exit application if server unreachable or response is invalid
     try:
         init_resp = session.get(API_ADDRESS)
+        if init_resp.status_code != 200: raise Exception
         notify("Connected.")
     except Exception:
         notify("Failed to connect to server.")
@@ -449,28 +522,29 @@ def fetchResourceAddresses():
         root.after(4000, root.destroy)
         return
     
-    if init_resp.status_code == 200:
-        USERS_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:users-all"]["href"]
-        GAMETYPES_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:gametypes-all"]["href"]
-        GAMES_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:games-all"]["href"]
+    USERS_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:users-all"]["href"]
+    GAMETYPES_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:gametypes-all"]["href"]
+    GAMES_ADDRESS = HOST_ADDRESS + init_resp.json()["@controls"]["boardgame:games-all"]["href"]
+    
+    # Get gametypes
+    gametypes_resp = session.get(GAMETYPES_ADDRESS)
+    if gametypes_resp.status_code != 200:
+        notify("Could not get gametypes.")
+        root.after(2000, root.destroy)
+        return
+    
+    # Get random-game route for each gametype
+    for gtype in gametypes_resp.json()["items"]:
+        self_resp = session.get(HOST_ADDRESS + gtype["@controls"]["self"]["href"])
+        if self_resp.status_code != 200:
+            notify("Could not get gametype " + gtype["name"] + ".")
+            root.after(2000, root.destroy)
+            return
         
-        gametypes_resp = session.get(GAMETYPES_ADDRESS)
-        if gametypes_resp.status_code != 200:
-            print("Could not get gametypes.")
-            sys.exit()
-        
-
-        # Routes for random games
-        for gtype in gametypes_resp.json()["items"]:
-            self_resp = session.get(HOST_ADDRESS + gtype["@controls"]["self"]["href"])
-            if self_resp.status_code != 200:
-                print("Could not get gametype " + gtype["name"] + ".")
-                sys.exit()
-            
-            if gtype["name"] == "tictactoe":
-                RANDOM_TTT_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
-            elif gtype["name"] == "checkers":
-                RANDOM_CHK_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
+        if gtype["name"] == "tictactoe":
+            RANDOM_TTT_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
+        elif gtype["name"] == "checkers":
+            RANDOM_CHK_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
 
 ### function for handling labels
 # Updates the labels with information about the current match the player is spectating
