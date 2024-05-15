@@ -156,9 +156,11 @@ def checkLogin():
             password = pwd
             updateUserInfo()
             notify("Created new user.")
+            logout_button.place(x=70, y=350, anchor="center")
+            delete_user_button.place(x=220, y=350, anchor="center")
             return
         # Failed to create new user
-        notify("Username does not exist.\n Unable to create new user.")
+        notify("Username already exists.\n Unable to create new user.")
     elif resp.status_code == 403:
         notify("Incorrect password.")
 
