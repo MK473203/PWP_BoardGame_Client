@@ -24,8 +24,6 @@ RANDOM_CHK_ADDRESS = None
 # Global session for communication
 session = requests.Session()
 session.headers["Content-Type"] = "application/json"
-spec_thread = None
-spec_connection = None
 
 # Window size in pixels, board does not adjust to changes
 win_size = (700, 450)
@@ -60,6 +58,7 @@ tabControl = Notebook(root, height=win_size[1])
 # Boards
 tic_board: dict[int, Button] = {}
 chk_board: dict[int, Button] = {}
+spec_board: dict[int, Button] = {}
 board_state = ""
 chk_selected_piece = None
 
@@ -79,7 +78,11 @@ settings = {
 # Variables
 turn_start = 0
 current_tab = "profile"
-notification_ids = {"checkers": None, "tictactoe": None, "profile": None, "spectate": None}
+notification_ids = {"checkers": None, "tictactoe": None,
+                    "profile": None, "spectate": None}
+spec_thread = None
+spec_connection = None
+spec_game_dict = None
 
 #--------------------------------------------------------------
 #-- Profile tab -----------------------------------------------
@@ -232,8 +235,12 @@ Button(
     command= lambda: spectateGame()
 ).place(x=560, y=120, anchor="center")
 
-#List where information widgets will be stored
-specWidgets = []
+gameLabel = Label(spec_frame, text="", font=("", 16))
+gameLabel.place(x=560, y=180, anchor="center")
+playerLabel = Label(spec_frame, text="", font=("", 16))
+playerLabel.place(x=560, y=220, anchor="center")
+
+stopButton = None
 
 #Frame where the game to be spectated would be drawn, might need to be removed
 #to just use spec_frame instead
@@ -395,6 +402,8 @@ def updateBoard():
                     image = WK_CHECKER_IMAGE
             chk_board[i].config(image=image)
 
+
+
 def joinRandomGame():
     if username is None or password is None:
         notify("Login before playing.")
@@ -459,7 +468,6 @@ def fetchResourceAddresses():
             print("Could not get gametypes.")
             sys.exit()
         
-
         # Routes for random games
         for gtype in gametypes_resp.json()["items"]:
             self_resp = session.get(HOST_ADDRESS + gtype["@controls"]["self"]["href"])
@@ -472,62 +480,103 @@ def fetchResourceAddresses():
             elif gtype["name"] == "checkers":
                 RANDOM_CHK_ADDRESS = HOST_ADDRESS + self_resp.json()["@controls"]["boardgame:get-random"]["href"]
 
+
+def updateSpectatorBoard():
+    for bt in spec_board.values():
+        bt.destroy()
+    spec_board.clear()
+    state = spec_game_dict["state"][1:]
+    if spec_game_dict["type"] == "tictactoe":
+        for x in range(3):
+            for y in range(3):
+                i = x + y * 3
+                image = BLANK_IMAGE
+                match state[i]:
+                    case "X":
+                        image = X_IMAGE
+                    case "O":
+                        image = O_IMAGE
+                bt = Button(
+                    game_frame, background="lightgrey", image=image, bd=6
+                )
+                bt.grid(column=x, row=y, sticky="sewn")
+                spec_board[i] = bt
+
+    elif spec_game_dict["type"] == "checkers":
+        for x in range(8):
+            for y in range(8):
+                i = x + y * 8
+                image = SMALL_BLANK_IMAGE
+                match state[i]:
+                    case "b":
+                        image = B_CHECKER_IMAGE
+                    case "B":
+                        image = BK_CHECKER_IMAGE
+                    case "w":
+                        image = W_CHECKER_IMAGE
+                    case "W":
+                        image = WK_CHECKER_IMAGE
+                bt = Button(
+                    game_frame, background="lightgrey", image=image, bd=4
+                )
+                bt.grid(column=x, row=y, sticky="sewn")
+                spec_board[i] = bt
+
 ### function for handling labels
 # Updates the labels with information about the current match the player is spectating
-def updateLabel(game_type, player_name):
-    gameLabel = Label(spec_frame, text=game_type, font=("", 16))
-    gameLabel.place(x=560, y=180, anchor="center")
-    specWidgets.append(gameLabel)
-    
-    playerLabel = Label(spec_frame, text=player_name, font=("", 16))
-    playerLabel.place(x=560, y=220, anchor="center")
-    specWidgets.append(playerLabel)
-    
-    stopButton = Button(
-                        spec_frame, background="lightgrey", bd=6,
-                        text="Stop spectating", font=("", 17), command=lambda: stopSpectating()
-                    )
-    stopButton.place(x=560, y=300, anchor="center")
-    specWidgets.append(stopButton)
+def updateSpectatorInfo():
+    global stopButton
 
-    # THIS NEEDS TO BE CHANGED TO SOMETHING THAT DRAWS THE SPECTATED GAME TO GAMEFRAME
-    # maybe 3rd parameter
-    Label(game_frame, text="Testing!", bg="#FFFFFF", font=("", 16)).place(x=200, y=200, anchor="center")
+    if spec_game_dict["currentPlayer"] is not None:
+        playerLabelText = spec_game_dict["currentPlayer"]
+    else:
+        playerLabelText = "No player"
+
+    gameLabel.config(text=spec_game_dict["type"])
+    playerLabel.config(text=playerLabelText)
+    
+    if stopButton is None:
+        stopButton = Button(
+                            spec_frame, background="lightgrey", bd=6,
+                            text="Stop spectating", font=("", 17), command=lambda: stopSpectating()
+                        )
+        stopButton.place(x=560, y=300, anchor="center")
+    updateSpectatorBoard()
+
+
 
 def stopSpectating():
     # Stop the spectator connection and thread and then clear the spectating screen
     global spec_connection, spec_thread
+    clearSpectatorInfo()
     if spec_connection is not None:
-        spec_connection.close()
+        if spec_connection.is_open:
+            spec_connection.close()
         spec_connection = None
     if spec_thread is not None:
         spec_thread.join()
         spec_thread = None
     print("Stopped spectating")
-    clearSpectatorInfo()
 
 # Clear the information about the match provided to the spectator
 def clearSpectatorInfo():
-    # Clears game frame
-    for widget in game_frame.winfo_children():
-        widget.destroy()
+    global stopButton
+    gameLabel.config(text="")
+    playerLabel.config(text="")
+    if stopButton is not None:
+        stopButton.destroy()
+        stopButton = None
+    for bt in spec_board.values():
+        bt.destroy()
+    spec_board.clear()
 
-    # Clears gametype, player making the move and stop button
-    for item in specWidgets:
-        item.destroy()
-
-    # Clear the list from widgets
-    specWidgets.clear()
-
-### ADDED A SPEC FUNCTION, NEEDS MORE WORK ###
-# TODO:
-# see if updateLabel needs to be updated to take a third parameter: game
-# which could then be used to draw the game to game_frame
 def spectateGame():
-    global spec_thread
+    global spec_thread, spec_game_dict
 
     def notification_handler(ch, method, properties, body):
-        print(body)
+        global spec_game_dict
+        spec_game_dict = json.loads(body)
+        updateSpectatorInfo()
 
     def spectator_thread(exchange, broker_url):
         global spec_connection
@@ -556,7 +605,8 @@ def spectateGame():
         print("start consuming")
         channel.start_consuming()
 
-    stopSpectating()
+    if spec_connection is not None or spec_thread is not None:
+        stopSpectating()
 
     # Check for a login required
     if username is None or password is None:
@@ -575,9 +625,10 @@ def spectateGame():
         notify("Could not get game information.")
         return
 
-    game = resp.json()
-    updateLabel(game["type"], game["currentPlayer"])
-    resp = session.get(game["@controls"]["boardgame:spectate"]["href"])
+    spec_game_dict = resp.json()
+    updateSpectatorInfo()
+    resp = session.get(
+        spec_game_dict["@controls"]["boardgame:spectate"]["href"])
 
     exchange = resp.json()["exchange"]
     broker_url = resp.json()["@controls"]["amqp-url"]
@@ -610,4 +661,12 @@ for x in range(8):
 root.after(10, notify, "Connecting to server...")
 root.after(100, fetchResourceAddresses)
 root.mainloop()
+leaveCurrentGame()
+if spec_connection is not None:
+    if spec_connection.is_open:
+        spec_connection.close()
+    spec_connection = None
+if spec_thread is not None:
+    spec_thread.join()
+    spec_thread = None
 session.close()
